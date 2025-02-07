@@ -14,6 +14,7 @@ class Color:
     RESET = '\033[0m'
 
 class BSQLI:
+    # Menambahkan lebih banyak user-agent pada daftar
     USER_AGENTS = [
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36",
         "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Version/14.1.2 Safari/537.36",
@@ -23,29 +24,34 @@ class BSQLI:
         "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:91.0) Gecko/20100101 Firefox/91.0",
         "Mozilla/5.0 (Linux; Android 10; SM-G973F) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.120 Mobile Safari/537.36",
         "Mozilla/5.0 (Linux; Android 11; Pixel 5) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.77 Mobile Safari/537.36",
+        "Mozilla/5.0 (X11; Ubuntu; Linux x86_64; rv:92.0) Gecko/20100101 Firefox/92.0",
+        "Mozilla/5.0 (Windows NT 6.1; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/92.0.4515.107 Safari/537.36",
+        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_6) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/14.0.1 Safari/605.1.15",
+        "Mozilla/5.0 (iPhone; CPU iPhone OS 17_7_2 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.3 Mobile/15E148 Safari/604.1",
+        "Mozilla/5.0 (iPhone; CPU iPhone OS 17_7_2 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) CriOS/133.0.6943.33 Mobile/15E148 Safari/604.1"
     ]
 
     def __init__(self):
         self.vulnerabilities_found = 0
         self.total_tests = 0
-        self.verbose = False  # Default to not verbose
-        self.vulnerable_urls = []  # List to store vulnerable URLs
+        self.verbose = False  # Default tidak verbose
+        self.vulnerable_urls = []  # Menyimpan URL yang rentan
 
     def get_random_user_agent(self):
         """
-        Returns a random user-agent string from the list.
+        Mengembalikan string user-agent secara acak dari daftar.
         """
         return random.choice(self.USER_AGENTS)
 
     def perform_request(self, url, payload, cookie):
         """
-        Perform a GET request with the given URL, payload, and cookie.
-        Returns a tuple containing:
-            - success (bool): True if the request was successful, False otherwise
-            - url_with_payload (str): The URL with the payload appended
-            - response_time (float): The time taken for the request to complete
-            - status_code (int): The HTTP status code
-            - error_message (str): The error message if the request failed, None otherwise
+        Melakukan GET request dengan URL, payload, dan cookie yang diberikan.
+        Mengembalikan tuple yang berisi:
+            - success (bool): True jika request berhasil, False jika tidak.
+            - url_with_payload (str): URL yang telah ditambahkan payload.
+            - response_time (float): Waktu yang diperlukan untuk menyelesaikan request.
+            - status_code (int): HTTP status code.
+            - error_message (str): Pesan error jika terjadi kegagalan.
         """
         url_with_payload = f"{url}{payload}"
         start_time = time.time()
@@ -69,7 +75,7 @@ class BSQLI:
 
     def read_file(self, path):
         """
-        Reads a file and returns a list of non-empty lines.
+        Membaca file dan mengembalikan daftar baris yang tidak kosong.
         """
         try:
             with open(path) as file:
@@ -80,7 +86,7 @@ class BSQLI:
 
     def save_vulnerable_urls(self, filename):
         """
-        Save the list of vulnerable URLs to a file.
+        Menyimpan daftar URL yang rentan ke file.
         """
         try:
             with open(filename, 'w') as file:
@@ -93,21 +99,21 @@ class BSQLI:
     def main(self):
         print(Color.CYAN + r"""
     _____               __ __
-    |   __ \.-----.-----.|  |__|
+    |   __ \.-----.-----.|  |__
     |   __ <|__ --|  _  ||  |  |
     |______/|_____|__   ||__|__|
                     |__|
-
+    
     made by Coffinxp & hexsh1dow
     YOUTUBE: Lostsec
-    """ + Color.RESET)
+        """ + Color.RESET)
 
-        # Input for verbose mode
+        # Mode verbose
         verbose_input = input(Color.PURPLE + "Enable verbose mode? (y/n): " + Color.RESET).strip().lower()
         if verbose_input in ['y', 'yes']:
             self.verbose = True
 
-        # Input for URL or URL list file
+        # Input URL atau file daftar URL
         input_url_or_file = input(Color.PURPLE + "Enter the URL or path to the URL list file: " + Color.RESET).strip()
         if not input_url_or_file:
             print(f"{Color.RED}No URL or URL list file provided.{Color.RESET}")
@@ -118,17 +124,17 @@ class BSQLI:
             print(f"{Color.RED}No valid URLs provided.{Color.RESET}")
             return
 
-        # Input for payload file
+        # Input file payload
         payload_path = input(Color.CYAN + "Enter the full path to the payload file (e.g., payloads/xor.txt): " + Color.RESET).strip()
         payloads = self.read_file(payload_path)
         if not payloads:
             print(f"{Color.RED}No valid payloads found in file: {payload_path}{Color.RESET}")
             return
 
-        # Input for cookie
+        # Input cookie
         cookie = input(Color.CYAN + "Enter the cookie to include in the GET request (leave empty if none): " + Color.RESET).strip()
 
-        # Input for number of concurrent threads
+        # Input jumlah thread
         threads_input = input(Color.CYAN + "Enter the number of concurrent threads (0-10, leave empty for default 0): " + Color.RESET).strip()
         try:
             threads = int(threads_input) if threads_input else 0
@@ -146,7 +152,8 @@ class BSQLI:
                     for payload in payloads:
                         self.total_tests += 1
                         success, url_with_payload, response_time, status_code, error_message = self.perform_request(url, payload, cookie)
-                        if success and status_code and response_time >= 10:
+                        # Ubah threshold deteksi delay menjadi 30 detik
+                        if success and status_code and response_time >= 30:
                             self.vulnerabilities_found += 1
                             self.vulnerable_urls.append(url_with_payload)
                             if self.verbose:
@@ -156,14 +163,14 @@ class BSQLI:
                         else:
                             if self.verbose:
                                 print(f"{Color.RED}✗ Not Vulnerable: {url_with_payload} - Response Time: {response_time:.2f} seconds - Status Code: {status_code}{Color.RESET}")
-
             else:
                 with concurrent.futures.ThreadPoolExecutor(max_workers=threads) as executor:
                     futures = [executor.submit(self.perform_request, url, payload, cookie) for url in urls for payload in payloads]
                     for future in concurrent.futures.as_completed(futures):
                         self.total_tests += 1
                         success, url_with_payload, response_time, status_code, error_message = future.result()
-                        if success and status_code and response_time >= 10:
+                        # Ubah threshold deteksi delay menjadi 30 detik
+                        if success and status_code and response_time >= 30:
                             self.vulnerabilities_found += 1
                             self.vulnerable_urls.append(url_with_payload)
                             if self.verbose:
@@ -173,7 +180,6 @@ class BSQLI:
                         else:
                             if self.verbose:
                                 print(f"{Color.RED}✗ Not Vulnerable: {url_with_payload} - Response Time: {response_time:.2f} seconds - Status Code: {status_code}{Color.RESET}")
-
         except KeyboardInterrupt:
             print(f"{Color.YELLOW}Scan interrupted by user.{Color.RESET}")
 
@@ -185,7 +191,7 @@ class BSQLI:
         else:
             print(f"{Color.RED}✗ No vulnerabilities found. Better luck next time!{Color.RESET}")
 
-        # Save vulnerable URLs to file
+        # Menyimpan URL yang rentan ke file jika diinginkan
         save_file = input(Color.PURPLE + "Enter the filename to save the list of vulnerable URLs (leave empty to skip): " + Color.RESET).strip()
         if save_file:
             self.save_vulnerable_urls(save_file)
