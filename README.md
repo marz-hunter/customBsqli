@@ -31,8 +31,8 @@ A multi-threaded SQL Injection vulnerability scanner that injects payloads into 
 1. Clone repository ini:
 
    ```bash
-   git clone https://github.com/marz-hunter/bsqli-scanner.git
-   cd bsqli-scanner
+   git clone https://github.com/marz-hunter/customBsqli.git
+   cd customBsqli
    ```
 
 2. Pastikan dependencies telah terinstall (lihat bagian Requirements).
@@ -50,19 +50,19 @@ Jalankan tool dengan memberikan argumen yang diperlukan. Tool ini mendukung:
 - **Scan dari file dan simpan seluruh hasil ke satu file:**
 
   ```bash
-  python3 bsqli_scanner.py -f input_urls.txt -o /root/vuln/vuln_urls.txt
+  python3 sqli.py -f input_urls.txt -o /root/vuln/vuln_urls.txt
   ```
 
 - **Scan dari folder dan simpan hasil per domain:**
 
   ```bash
-  python3 bsqli_scanner.py -f /path/to/url_folder -of /root/vuln
+  python3 sqli.py -f /path/to/url_folder -of /root/vuln
   ```
 
 - **Scan dengan mode verbose dan 5 thread:**
 
   ```bash
-  python3 bsqli_scanner.py -f input_urls.txt -mode V -threads 5 -o /root/vuln/vuln_urls.txt
+  python3 sqli.py -f input_urls.txt -mode V -threads 5 -o /root/vuln/vuln_urls.txt
   ```
 
 ### Selama Eksekusi
