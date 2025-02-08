@@ -110,40 +110,17 @@ class BSQLI:
         except Exception as e:
             print(f"{Color.RED}Error saving vulnerable URLs to file: {e}{Color.RESET}")
 
-    def save_vulnerable_urls_by_domain(self, output_folder, ext=".txt"):
-        """
-        Mengelompokkan URL rentan berdasarkan domain dan menyimpannya ke file
-        dengan format: {domain}.vulnsqli{ext}
-        """
-        domain_dict = {}
-        for url in self.vulnerable_urls:
-            domain = urlparse(url).netloc
-            if domain not in domain_dict:
-                domain_dict[domain] = []
-            domain_dict[domain].append(url)
-        for domain, urls in domain_dict.items():
-            file_path = os.path.join(output_folder, f"{domain}.vulnsqli{ext}")
-            try:
-                with open(file_path, "w") as f:
-                    for u in urls:
-                        f.write(u + "\n")
-                print(f"{Color.GREEN}Vulnerable URLs for {domain} saved to {file_path}{Color.RESET}")
-            except Exception as e:
-                print(f"{Color.RED}Error saving vulnerable URLs for {domain} to file: {e}{Color.RESET}")
-
     def main(self):
         # Parsing argumen command-line
         parser = argparse.ArgumentParser(description="BSQLi Scanner Tool")
         parser.add_argument("-f", "--file", required=True,
-                            help="Input file dengan URL (satu per baris), satu URL, atau folder yang berisi file dengan URL")
+                            help="Input file dengan URL (satu per baris), satu URL, atau folder yang berisi file")
         parser.add_argument("-mode", "--mode", choices=["V", "N", "v", "n"], default="N",
                             help="Mode verbose: V untuk verbose, N untuk non-verbose")
         parser.add_argument("-threads", "--threads", type=int, default=0,
                             help="Jumlah thread (0-10)")
         parser.add_argument("-o", "--output",
-                            help="Nama file output untuk menyimpan URL yang rentan (jika ingin output ke satu file)")
-        parser.add_argument("-of", "--output-folder",
-                            help="Folder output untuk menyimpan file per domain dengan format {domain}.vulnsqli.<ekstensi> (default ekstensi: .txt)")
+                            help="Nama file output atau folder untuk menyimpan URL yang rentan (opsional)")
         args = parser.parse_args()
 
         # Tampilan banner
@@ -154,21 +131,20 @@ class BSQLI:
     |______/|_____|__   ||__|__|
                     |__|
     
-    made by Coffinxp & hexsh1dow + Custom By MARZUKI
-    YOUTUBE
+    made by Coffinxp & hexsh1dow
+    YOUTUBE: Lostsec
         """ + Color.RESET)
 
         # Set mode verbose
         self.verbose = args.mode.upper() == "V"
 
-        # Ambil URL dari file, folder, atau sebagai satu URL
-        urls = []
+        # Ambil URL dari file, URL langsung, atau folder
         if os.path.isdir(args.file):
-            # Jika input adalah folder, ambil semua file di dalam folder (rekursif)
-            for root, dirs, files in os.walk(args.file):
-                for f in files:
-                    file_path = os.path.join(root, f)
-                    urls.extend(self.read_file(file_path))
+            urls = []
+            for filename in os.listdir(args.file):
+                full_path = os.path.join(args.file, filename)
+                if os.path.isfile(full_path):
+                    urls.extend(self.read_file(full_path))
         elif os.path.isfile(args.file):
             urls = self.read_file(args.file)
         else:
@@ -201,7 +177,7 @@ class BSQLI:
                         self.total_tests += 1
                         success, url_with_payload, response_time, status_code, error_message = self.perform_request(url, payload, cookie)
                         # Deteksi delay lebih dari atau sama dengan 30 detik
-                        if success and status_code and response_time >= 30:
+                        if success and status_code and response_time >= 10:
                             self.vulnerabilities_found += 1
                             self.vulnerable_urls.append(url_with_payload)
                             if self.verbose:
@@ -217,7 +193,7 @@ class BSQLI:
                     for future in concurrent.futures.as_completed(futures):
                         self.total_tests += 1
                         success, url_with_payload, response_time, status_code, error_message = future.result()
-                        if success and status_code and response_time >= 30:
+                        if success and status_code and response_time >= 10:
                             self.vulnerabilities_found += 1
                             self.vulnerable_urls.append(url_with_payload)
                             if self.verbose:
@@ -238,21 +214,16 @@ class BSQLI:
         else:
             print(f"{Color.RED}✗ No vulnerabilities found. Better luck next time!{Color.RESET}")
 
-        # Simpan URL yang rentan sesuai opsi output
-        if args.output_folder:
-            # Jika output-folder disediakan, simpan per domain dengan format {domain}.vulnsqli.<ekstensi>
-            if not os.path.exists(args.output_folder):
-                try:
-                    os.makedirs(args.output_folder)
-                except Exception as e:
-                    print(f"{Color.RED}Error creating output folder: {e}{Color.RESET}")
-                    return
-            self.save_vulnerable_urls_by_domain(args.output_folder)
-        elif args.output:
-            self.save_vulnerable_urls(args.output)
+        # Simpan URL yang rentan jika argumen output disediakan.
+        if args.output:
+            output_path = args.output
+            # Jika output adalah folder, simpan ke file 'vulnerable_urls.txt' di folder tersebut.
+            if os.path.isdir(args.output):
+                output_path = os.path.join(args.output, "vulnerable_urls.txt")
+            self.save_vulnerable_urls(output_path)
 
         print(f"{Color.CYAN}Thank you for using BSQLi tool!{Color.RESET}")
 
 if __name__ == "__main__":
-    scanner = BSQLi()
+    scanner = BSQLI()
     scanner.main()
