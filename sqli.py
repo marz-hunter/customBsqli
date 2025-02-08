@@ -64,7 +64,7 @@ class BSQLI:
             for key in params:
                 params[key] = [v + payload for v in params[key]]
             new_query = urlencode(params, doseq=True)
-            new_url = urlunparse((parsed.scheme, parsed.netloc, parsed.path, 
+            new_url = urlunparse((parsed.scheme, parsed.netloc, parsed.path,
                                   parsed.params, new_query, parsed.fragment))
             return new_url
         else:
@@ -119,17 +119,52 @@ class BSQLI:
         except Exception as e:
             print(f"{Color.RED}Error saving vulnerable URLs to file: {e}{Color.RESET}")
 
+    def save_vulnerable_urls_by_domain(self, output_folder, ext=".txt"):
+        """
+        Mengelompokkan URL rentan berdasarkan domain dan menyimpannya ke file
+        dengan format: {domain}.vulnsqli{ext}
+        """
+        domain_dict = {}
+        for url in self.vulnerable_urls:
+            domain = urlparse(url).netloc
+            if domain not in domain_dict:
+                domain_dict[domain] = []
+            domain_dict[domain].append(url)
+        for domain, urls in domain_dict.items():
+            file_path = os.path.join(output_folder, f"{domain}.vulnsqli{ext}")
+            try:
+                with open(file_path, "w") as f:
+                    for u in urls:
+                        f.write(u + "\n")
+                print(f"{Color.GREEN}Vulnerable URLs for {domain} saved to {file_path}{Color.RESET}")
+            except Exception as e:
+                print(f"{Color.RED}Error saving vulnerable URLs for {domain} to file: {e}{Color.RESET}")
+
+    def log_scan_result(self, domain, message):
+        """
+        Menulis log hasil scan ke file {domain}.scan.log.
+        """
+        log_filename = f"{domain}.scan.log"
+        timestamp = time.strftime('%Y-%m-%d %H:%M:%S')
+        try:
+            with open(log_filename, "a") as log_file:
+                log_file.write(f"{timestamp} - {message}\n")
+        except Exception as e:
+            print(f"{Color.RED}Error writing log to {log_filename}: {e}{Color.RESET}")
+
     def main(self):
         # Parsing argumen command-line
         parser = argparse.ArgumentParser(description="BSQLi Scanner Tool")
         parser.add_argument("-f", "--file", required=True,
-                            help="Input file dengan URL (satu per baris), satu URL, atau folder yang berisi file")
+                            help="Input file dengan URL (satu per baris), satu URL, atau folder yang berisi file dengan URL")
         parser.add_argument("-mode", "--mode", choices=["V", "N", "v", "n"], default="N",
                             help="Mode verbose: V untuk verbose, N untuk non-verbose")
         parser.add_argument("-threads", "--threads", type=int, default=0,
                             help="Jumlah thread (0-10)")
         parser.add_argument("-o", "--output",
-                            help="Nama file output atau folder untuk menyimpan URL yang rentan (opsional)")
+                            help="Nama file output untuk menyimpan URL yang rentan (jika ingin output ke satu file)")
+        parser.add_argument("-of", "--output-folder",
+                            help="Folder output untuk menyimpan file per domain dengan format {domain}.vulnsqli.<ekstensi> (default ekstensi: .txt)")
         args = parser.parse_args()
 
         # Tampilan banner
@@ -147,29 +182,13 @@ class BSQLI:
         # Set mode verbose
         self.verbose = args.mode.upper() == "V"
 
-        # Ambil URL dari file, URL langsung, atau folder
-        if os.path.isdir(args.file):
-            urls = []
-            for filename in os.listdir(args.file):
-                full_path = os.path.join(args.file, filename)
-                if os.path.isfile(full_path):
-                    urls.extend(self.read_file(full_path))
-        elif os.path.isfile(args.file):
-            urls = self.read_file(args.file)
-        else:
-            urls = [args.file]
-        if not urls:
-            print(f"{Color.RED}No valid URLs provided.{Color.RESET}")
-            return
-
-        # Input file payload (dibiarkan interaktif karena tidak didefinisikan di argumen)
+        # Persiapkan payload dan cookie
         payload_path = input(Color.CYAN + "Enter the full path to the payload file (e.g., payloads/xor.txt): " + Color.RESET).strip()
         payloads = self.read_file(payload_path)
         if not payloads:
             print(f"{Color.RED}No valid payloads found in file: {payload_path}{Color.RESET}")
             return
 
-        # Cookie (jika diperlukan)
         cookie = input(Color.CYAN + "Enter the cookie to include in the GET request (leave empty if none): " + Color.RESET).strip()
 
         threads = args.threads
@@ -179,41 +198,110 @@ class BSQLI:
 
         print(f"\n{Color.PURPLE}Starting scan...{Color.RESET}")
 
-        try:
+        # Proses input: jika input adalah folder, proses tiap file satu per satu.
+        if os.path.isdir(args.file):
+            for root, dirs, files in os.walk(args.file):
+                for f in files:
+                    file_path = os.path.join(root, f)
+                    current_urls = self.read_file(file_path)
+                    if not current_urls:
+                        continue
+                    print(f"{Color.CYAN}Processing file: {file_path}{Color.RESET}")
+                    if threads == 0:
+                        for url in current_urls:
+                            for payload in payloads:
+                                self.total_tests += 1
+                                success, url_with_payload, response_time, status_code, error_message = self.perform_request(url, payload, cookie)
+                                domain = urlparse(url_with_payload).netloc
+                                if success and status_code and response_time >= 10:
+                                    self.vulnerabilities_found += 1
+                                    self.vulnerable_urls.append(url_with_payload)
+                                    msg = f"✓ SQLi Found! URL: {url_with_payload} - Response Time: {response_time:.2f}s - Status Code: {status_code}"
+                                    if self.verbose:
+                                        print(f"{Color.GREEN}{msg}{Color.RESET}")
+                                        self.log_scan_result(domain, msg)
+                                    else:
+                                        print(f"{Color.GREEN}✓ Vulnerable URL: {url_with_payload}{Color.RESET}")
+                                else:
+                                    msg = f"✗ Not Vulnerable: {url_with_payload} - Response Time: {response_time:.2f}s - Status Code: {status_code}"
+                                    if self.verbose:
+                                        print(f"{Color.RED}{msg}{Color.RESET}")
+                                        self.log_scan_result(domain, msg)
+                    else:
+                        with concurrent.futures.ThreadPoolExecutor(max_workers=threads) as executor:
+                            futures = []
+                            for url in current_urls:
+                                for payload in payloads:
+                                    futures.append(executor.submit(self.perform_request, url, payload, cookie))
+                            for future in concurrent.futures.as_completed(futures):
+                                self.total_tests += 1
+                                success, url_with_payload, response_time, status_code, error_message = future.result()
+                                domain = urlparse(url_with_payload).netloc
+                                if success and status_code and response_time >= 10:
+                                    self.vulnerabilities_found += 1
+                                    self.vulnerable_urls.append(url_with_payload)
+                                    msg = f"✓ SQLi Found! URL: {url_with_payload} - Response Time: {response_time:.2f}s - Status Code: {status_code}"
+                                    if self.verbose:
+                                        print(f"{Color.GREEN}{msg}{Color.RESET}")
+                                        self.log_scan_result(domain, msg)
+                                    else:
+                                        print(f"{Color.GREEN}✓ Vulnerable URL: {url_with_payload}{Color.RESET}")
+                                else:
+                                    msg = f"✗ Not Vulnerable: {url_with_payload} - Response Time: {response_time:.2f}s - Status Code: {status_code}"
+                                    if self.verbose:
+                                        print(f"{Color.RED}{msg}{Color.RESET}")
+                                        self.log_scan_result(domain, msg)
+        else:
+            # Jika input adalah file atau URL tunggal
+            if os.path.isfile(args.file):
+                urls = self.read_file(args.file)
+            else:
+                urls = [args.file]
+            if not urls:
+                print(f"{Color.RED}No valid URLs provided.{Color.RESET}")
+                return
+
             if threads == 0:
                 for url in urls:
                     for payload in payloads:
                         self.total_tests += 1
                         success, url_with_payload, response_time, status_code, error_message = self.perform_request(url, payload, cookie)
-                        # Deteksi delay lebih dari atau sama dengan 30 detik
+                        domain = urlparse(url_with_payload).netloc
                         if success and status_code and response_time >= 10:
                             self.vulnerabilities_found += 1
                             self.vulnerable_urls.append(url_with_payload)
+                            msg = f"✓ SQLi Found! URL: {url_with_payload} - Response Time: {response_time:.2f}s - Status Code: {status_code}"
                             if self.verbose:
-                                print(f"{Color.GREEN}✓ SQLi Found! URL: {url_with_payload} - Response Time: {response_time:.2f}s - Status Code: {status_code}{Color.RESET}")
+                                print(f"{Color.GREEN}{msg}{Color.RESET}")
+                                self.log_scan_result(domain, msg)
                             else:
                                 print(f"{Color.GREEN}✓ Vulnerable URL: {url_with_payload}{Color.RESET}")
                         else:
+                            msg = f"✗ Not Vulnerable: {url_with_payload} - Response Time: {response_time:.2f}s - Status Code: {status_code}"
                             if self.verbose:
-                                print(f"{Color.RED}✗ Not Vulnerable: {url_with_payload} - Response Time: {response_time:.2f}s - Status Code: {status_code}{Color.RESET}")
+                                print(f"{Color.RED}{msg}{Color.RESET}")
+                                self.log_scan_result(domain, msg)
             else:
                 with concurrent.futures.ThreadPoolExecutor(max_workers=threads) as executor:
                     futures = [executor.submit(self.perform_request, url, payload, cookie) for url in urls for payload in payloads]
                     for future in concurrent.futures.as_completed(futures):
                         self.total_tests += 1
                         success, url_with_payload, response_time, status_code, error_message = future.result()
+                        domain = urlparse(url_with_payload).netloc
                         if success and status_code and response_time >= 10:
                             self.vulnerabilities_found += 1
                             self.vulnerable_urls.append(url_with_payload)
+                            msg = f"✓ SQLi Found! URL: {url_with_payload} - Response Time: {response_time:.2f}s - Status Code: {status_code}"
                             if self.verbose:
-                                print(f"{Color.GREEN}✓ SQLi Found! URL: {url_with_payload} - Response Time: {response_time:.2f}s - Status Code: {status_code}{Color.RESET}")
+                                print(f"{Color.GREEN}{msg}{Color.RESET}")
+                                self.log_scan_result(domain, msg)
                             else:
                                 print(f"{Color.GREEN}✓ Vulnerable URL: {url_with_payload}{Color.RESET}")
                         else:
+                            msg = f"✗ Not Vulnerable: {url_with_payload} - Response Time: {response_time:.2f}s - Status Code: {status_code}"
                             if self.verbose:
-                                print(f"{Color.RED}✗ Not Vulnerable: {url_with_payload} - Response Time: {response_time:.2f}s - Status Code: {status_code}{Color.RESET}")
-        except KeyboardInterrupt:
-            print(f"{Color.YELLOW}Scan interrupted by user.{Color.RESET}")
+                                print(f"{Color.RED}{msg}{Color.RESET}")
+                                self.log_scan_result(domain, msg)
 
         print(f"\n{Color.BLUE}Scan Complete.{Color.RESET}")
         print(f"{Color.YELLOW}Total Tests: {self.total_tests}{Color.RESET}")
@@ -223,13 +311,17 @@ class BSQLI:
         else:
             print(f"{Color.RED}✗ No vulnerabilities found. Better luck next time!{Color.RESET}")
 
-        # Simpan URL yang rentan jika argumen output disediakan.
-        if args.output:
-            output_path = args.output
-            # Jika output adalah folder, simpan ke file 'vulnerable_urls.txt' di folder tersebut.
-            if os.path.isdir(args.output):
-                output_path = os.path.join(args.output, "vulnerable_urls.txt")
-            self.save_vulnerable_urls(output_path)
+        # Simpan URL yang rentan sesuai opsi output
+        if args.output_folder:
+            if not os.path.exists(args.output_folder):
+                try:
+                    os.makedirs(args.output_folder)
+                except Exception as e:
+                    print(f"{Color.RED}Error creating output folder: {e}{Color.RESET}")
+                    return
+            self.save_vulnerable_urls_by_domain(args.output_folder)
+        elif args.output:
+            self.save_vulnerable_urls(args.output)
 
         print(f"{Color.CYAN}Thank you for using BSQLi tool!{Color.RESET}")
 
