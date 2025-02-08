@@ -1,8 +1,11 @@
+#!/usr/bin/env python3
 import os
 import requests
 import time
 import concurrent.futures
 import random
+import argparse
+from urllib.parse import urlparse, parse_qs, urlencode, urlunparse
 
 class Color:
     BLUE = '\033[94m'
@@ -26,34 +29,49 @@ class BSQLI:
         "Mozilla/5.0 (Linux; Android 11; Pixel 5) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.77 Mobile Safari/537.36",
         "Mozilla/5.0 (X11; Ubuntu; Linux x86_64; rv:92.0) Gecko/20100101 Firefox/92.0",
         "Mozilla/5.0 (Windows NT 6.1; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/92.0.4515.107 Safari/537.36",
-        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_6) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/14.0.1 Safari/605.1.15",
-        "Mozilla/5.0 (iPhone; CPU iPhone OS 17_7_2 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.3 Mobile/15E148 Safari/604.1",
-        "Mozilla/5.0 (iPhone; CPU iPhone OS 17_7_2 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) CriOS/133.0.6943.33 Mobile/15E148 Safari/604.1"
+        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_6) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/14.0.1 Safari/605.1.15"
     ]
 
     def __init__(self):
         self.vulnerabilities_found = 0
         self.total_tests = 0
-        self.verbose = False  # Default tidak verbose
+        self.verbose = False  # Default non-verbose
         self.vulnerable_urls = []  # Menyimpan URL yang rentan
 
     def get_random_user_agent(self):
-        """
-        Mengembalikan string user-agent secara acak dari daftar.
-        """
+        """Mengembalikan user-agent secara acak."""
         return random.choice(self.USER_AGENTS)
+
+    def inject_payload_into_url(self, url, payload):
+        """
+        Memasukkan payload ke setiap value parameter dalam URL.
+        Jika URL memiliki query string, payload akan ditambahkan di setiap value.
+        Jika tidak, payload akan ditambahkan sebagai query string.
+        """
+        parsed = urlparse(url)
+        if parsed.query:
+            params = parse_qs(parsed.query)
+            # Tambahkan payload ke setiap value parameter
+            for key in params:
+                params[key] = [v + payload for v in params[key]]
+            new_query = urlencode(params, doseq=True)
+            new_url = urlunparse((parsed.scheme, parsed.netloc, parsed.path, 
+                                  parsed.params, new_query, parsed.fragment))
+            return new_url
+        else:
+            # Jika tidak ada query, tambahkan payload sebagai query string
+            if '?' in url:
+                return url + '&' + payload
+            else:
+                return url + '?' + payload
 
     def perform_request(self, url, payload, cookie):
         """
-        Melakukan GET request dengan URL, payload, dan cookie yang diberikan.
-        Mengembalikan tuple yang berisi:
-            - success (bool): True jika request berhasil, False jika tidak.
-            - url_with_payload (str): URL yang telah ditambahkan payload.
-            - response_time (float): Waktu yang diperlukan untuk menyelesaikan request.
-            - status_code (int): HTTP status code.
-            - error_message (str): Pesan error jika terjadi kegagalan.
+        Melakukan GET request setelah menyisipkan payload ke seluruh parameter.
+        Mengembalikan tuple:
+          (success, url_with_payload, response_time, status_code, error_message)
         """
-        url_with_payload = f"{url}{payload}"
+        url_with_payload = self.inject_payload_into_url(url, payload)
         start_time = time.time()
 
         headers = {
@@ -74,9 +92,7 @@ class BSQLI:
         return success, url_with_payload, response_time, response.status_code if success else None, error_message
 
     def read_file(self, path):
-        """
-        Membaca file dan mengembalikan daftar baris yang tidak kosong.
-        """
+        """Membaca file dan mengembalikan daftar baris yang tidak kosong."""
         try:
             with open(path) as file:
                 return [line.strip() for line in file if line.strip()]
@@ -85,9 +101,7 @@ class BSQLI:
             return []
 
     def save_vulnerable_urls(self, filename):
-        """
-        Menyimpan daftar URL yang rentan ke file.
-        """
+        """Menyimpan URL yang rentan ke file."""
         try:
             with open(filename, 'w') as file:
                 for url in self.vulnerable_urls:
@@ -96,7 +110,43 @@ class BSQLI:
         except Exception as e:
             print(f"{Color.RED}Error saving vulnerable URLs to file: {e}{Color.RESET}")
 
+    def save_vulnerable_urls_by_domain(self, output_folder, ext=".txt"):
+        """
+        Mengelompokkan URL rentan berdasarkan domain dan menyimpannya ke file
+        dengan format: {domain}.vulnsqli{ext}
+        """
+        domain_dict = {}
+        for url in self.vulnerable_urls:
+            domain = urlparse(url).netloc
+            if domain not in domain_dict:
+                domain_dict[domain] = []
+            domain_dict[domain].append(url)
+        for domain, urls in domain_dict.items():
+            file_path = os.path.join(output_folder, f"{domain}.vulnsqli{ext}")
+            try:
+                with open(file_path, "w") as f:
+                    for u in urls:
+                        f.write(u + "\n")
+                print(f"{Color.GREEN}Vulnerable URLs for {domain} saved to {file_path}{Color.RESET}")
+            except Exception as e:
+                print(f"{Color.RED}Error saving vulnerable URLs for {domain} to file: {e}{Color.RESET}")
+
     def main(self):
+        # Parsing argumen command-line
+        parser = argparse.ArgumentParser(description="BSQLi Scanner Tool")
+        parser.add_argument("-f", "--file", required=True,
+                            help="Input file dengan URL (satu per baris), satu URL, atau folder yang berisi file dengan URL")
+        parser.add_argument("-mode", "--mode", choices=["V", "N", "v", "n"], default="N",
+                            help="Mode verbose: V untuk verbose, N untuk non-verbose")
+        parser.add_argument("-threads", "--threads", type=int, default=0,
+                            help="Jumlah thread (0-10)")
+        parser.add_argument("-o", "--output",
+                            help="Nama file output untuk menyimpan URL yang rentan (jika ingin output ke satu file)")
+        parser.add_argument("-of", "--output-folder",
+                            help="Folder output untuk menyimpan file per domain dengan format {domain}.vulnsqli.<ekstensi> (default ekstensi: .txt)")
+        args = parser.parse_args()
+
+        # Tampilan banner
         print(Color.CYAN + r"""
     _____               __ __
     |   __ \.-----.-----.|  |__
@@ -104,44 +154,42 @@ class BSQLI:
     |______/|_____|__   ||__|__|
                     |__|
     
-    made by Coffinxp & hexsh1dow
-    YOUTUBE: Lostsec
+    made by Coffinxp & hexsh1dow + Custom By MARZUKI
+    YOUTUBE
         """ + Color.RESET)
 
-        # Mode verbose
-        verbose_input = input(Color.PURPLE + "Enable verbose mode? (y/n): " + Color.RESET).strip().lower()
-        if verbose_input in ['y', 'yes']:
-            self.verbose = True
+        # Set mode verbose
+        self.verbose = args.mode.upper() == "V"
 
-        # Input URL atau file daftar URL
-        input_url_or_file = input(Color.PURPLE + "Enter the URL or path to the URL list file: " + Color.RESET).strip()
-        if not input_url_or_file:
-            print(f"{Color.RED}No URL or URL list file provided.{Color.RESET}")
-            return
-
-        urls = [input_url_or_file] if not os.path.isfile(input_url_or_file) else self.read_file(input_url_or_file)
+        # Ambil URL dari file, folder, atau sebagai satu URL
+        urls = []
+        if os.path.isdir(args.file):
+            # Jika input adalah folder, ambil semua file di dalam folder (rekursif)
+            for root, dirs, files in os.walk(args.file):
+                for f in files:
+                    file_path = os.path.join(root, f)
+                    urls.extend(self.read_file(file_path))
+        elif os.path.isfile(args.file):
+            urls = self.read_file(args.file)
+        else:
+            urls = [args.file]
         if not urls:
             print(f"{Color.RED}No valid URLs provided.{Color.RESET}")
             return
 
-        # Input file payload
+        # Input file payload (dibiarkan interaktif karena tidak didefinisikan di argumen)
         payload_path = input(Color.CYAN + "Enter the full path to the payload file (e.g., payloads/xor.txt): " + Color.RESET).strip()
         payloads = self.read_file(payload_path)
         if not payloads:
             print(f"{Color.RED}No valid payloads found in file: {payload_path}{Color.RESET}")
             return
 
-        # Input cookie
+        # Cookie (jika diperlukan)
         cookie = input(Color.CYAN + "Enter the cookie to include in the GET request (leave empty if none): " + Color.RESET).strip()
 
-        # Input jumlah thread
-        threads_input = input(Color.CYAN + "Enter the number of concurrent threads (0-10, leave empty for default 0): " + Color.RESET).strip()
-        try:
-            threads = int(threads_input) if threads_input else 0
-            if threads < 0 or threads > 10:
-                raise ValueError("Number of threads must be between 0 and 10.")
-        except ValueError as e:
-            print(f"{Color.RED}Invalid number of threads: {e}{Color.RESET}")
+        threads = args.threads
+        if threads < 0 or threads > 10:
+            print(f"{Color.RED}Invalid number of threads. Must be between 0 and 10.{Color.RESET}")
             return
 
         print(f"\n{Color.PURPLE}Starting scan...{Color.RESET}")
@@ -152,34 +200,33 @@ class BSQLI:
                     for payload in payloads:
                         self.total_tests += 1
                         success, url_with_payload, response_time, status_code, error_message = self.perform_request(url, payload, cookie)
-                        # Ubah threshold deteksi delay menjadi 30 detik
+                        # Deteksi delay lebih dari atau sama dengan 30 detik
                         if success and status_code and response_time >= 30:
                             self.vulnerabilities_found += 1
                             self.vulnerable_urls.append(url_with_payload)
                             if self.verbose:
-                                print(f"{Color.GREEN}✓ SQLi Found! URL: {url_with_payload} - Response Time: {response_time:.2f} seconds - Status Code: {status_code}{Color.RESET}")
+                                print(f"{Color.GREEN}✓ SQLi Found! URL: {url_with_payload} - Response Time: {response_time:.2f}s - Status Code: {status_code}{Color.RESET}")
                             else:
                                 print(f"{Color.GREEN}✓ Vulnerable URL: {url_with_payload}{Color.RESET}")
                         else:
                             if self.verbose:
-                                print(f"{Color.RED}✗ Not Vulnerable: {url_with_payload} - Response Time: {response_time:.2f} seconds - Status Code: {status_code}{Color.RESET}")
+                                print(f"{Color.RED}✗ Not Vulnerable: {url_with_payload} - Response Time: {response_time:.2f}s - Status Code: {status_code}{Color.RESET}")
             else:
                 with concurrent.futures.ThreadPoolExecutor(max_workers=threads) as executor:
                     futures = [executor.submit(self.perform_request, url, payload, cookie) for url in urls for payload in payloads]
                     for future in concurrent.futures.as_completed(futures):
                         self.total_tests += 1
                         success, url_with_payload, response_time, status_code, error_message = future.result()
-                        # Ubah threshold deteksi delay menjadi 30 detik
                         if success and status_code and response_time >= 30:
                             self.vulnerabilities_found += 1
                             self.vulnerable_urls.append(url_with_payload)
                             if self.verbose:
-                                print(f"{Color.GREEN}✓ SQLi Found! URL: {url_with_payload} - Response Time: {response_time:.2f} seconds - Status Code: {status_code}{Color.RESET}")
+                                print(f"{Color.GREEN}✓ SQLi Found! URL: {url_with_payload} - Response Time: {response_time:.2f}s - Status Code: {status_code}{Color.RESET}")
                             else:
                                 print(f"{Color.GREEN}✓ Vulnerable URL: {url_with_payload}{Color.RESET}")
                         else:
                             if self.verbose:
-                                print(f"{Color.RED}✗ Not Vulnerable: {url_with_payload} - Response Time: {response_time:.2f} seconds - Status Code: {status_code}{Color.RESET}")
+                                print(f"{Color.RED}✗ Not Vulnerable: {url_with_payload} - Response Time: {response_time:.2f}s - Status Code: {status_code}{Color.RESET}")
         except KeyboardInterrupt:
             print(f"{Color.YELLOW}Scan interrupted by user.{Color.RESET}")
 
@@ -191,13 +238,21 @@ class BSQLI:
         else:
             print(f"{Color.RED}✗ No vulnerabilities found. Better luck next time!{Color.RESET}")
 
-        # Menyimpan URL yang rentan ke file jika diinginkan
-        save_file = input(Color.PURPLE + "Enter the filename to save the list of vulnerable URLs (leave empty to skip): " + Color.RESET).strip()
-        if save_file:
-            self.save_vulnerable_urls(save_file)
+        # Simpan URL yang rentan sesuai opsi output
+        if args.output_folder:
+            # Jika output-folder disediakan, simpan per domain dengan format {domain}.vulnsqli.<ekstensi>
+            if not os.path.exists(args.output_folder):
+                try:
+                    os.makedirs(args.output_folder)
+                except Exception as e:
+                    print(f"{Color.RED}Error creating output folder: {e}{Color.RESET}")
+                    return
+            self.save_vulnerable_urls_by_domain(args.output_folder)
+        elif args.output:
+            self.save_vulnerable_urls(args.output)
 
         print(f"{Color.CYAN}Thank you for using BSQLi tool!{Color.RESET}")
 
 if __name__ == "__main__":
-    scanner = BSQLI()
+    scanner = BSQLi()
     scanner.main()
