@@ -231,7 +231,7 @@ class BSQLI:
     |______/|_____|__   ||__|__|
                     |__|
     
-    made by Coffinxp & hexsh1dow
+    made by Coffinxp & hexsh1dow & marz-hunter
     YOUTUBE: Lostsec
         """ + Color.RESET)
 
